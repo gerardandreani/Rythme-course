@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Éditeur de lecture rythmique</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #ffffff;
+    color: #1a1a1a;
+    width: 100%;
+    height: 100%;
+  }
+  #app { padding: 16px; max-width: 760px; margin: 0 auto; }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    padding: 12px;
+    background: #f5f5f3;
+    border-radius: 10px;
+    border: 1px solid #e0e0dc;
+  }
+  .tool-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .divider { width: 1px; height: 26px; background: #d8d8d2; margin: 0 2px; }
+
+  .note-btn {
+    padding: 6px 10px;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #ffffff;
+    color: #1a1a1a;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .note-btn:hover { background: #f0f0ee; }
+  .note-btn.active { background: #E6F1FB; color: #0C447C; border-color: #85B7EB; }
+
+  .ctrl-btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #ffffff;
+    color: #1a1a1a;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .ctrl-btn:hover { background: #f0f0ee; }
+  .ctrl-btn.play { background: #EAF3DE; color: #27500A; border-color: #97C459; }
+  .ctrl-btn.stop { background: #FCEBEB; color: #791F1F; border-color: #F09595; }
+  .ctrl-btn.loop { background: #FAEEDA; color: #633806; border-color: #EF9F27; }
+  .ctrl-btn.loop.active { background: #BA7517; color: #ffffff; border-color: #854F0B; }
+  .ctrl-btn.metro.active { background: #534AB7; color: #ffffff; border-color: #3C3489; }
+
+  .bar-counter {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    min-height: 18px;
+    margin-bottom: 4px;
+  }
+  .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .bpm-group { display: flex; align-items: center; gap: 8px; }
+  .bpm-group label { font-size: 13px; color: #555; white-space: nowrap; }
+  .bpm-group input[type=range] { width: 90px; }
+  .bpm-val { font-size: 13px; font-weight: 600; min-width: 30px; }
+  .bpm-step { padding: 4px 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; background: #fff; line-height: 1; }
+  .bpm-step:hover { background: #f0f0ee; }
+
+  select {
+    font-size: 13px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 6px 8px;
+    background: #ffffff;
+    color: #1a1a1a;
+    cursor: pointer;
+  }
+
+  #score {
+    display: block;
+    width: 100%;
+    cursor: pointer;
+    border-radius: 8px;
+    border: 1px solid #e0e0dc;
+    background: #ffffff;
+    touch-action: manipulation;
+  }
+
+  .status {
+    font-size: 12px;
+    color: #666;
+    margin-top: 8px;
+    text-align: center;
+    min-height: 16px;
+  }
+
+  @media (max-width: 480px) {
+    .toolbar { padding: 8px; gap: 6px; }
+    .note-btn, .ctrl-btn { padding: 5px 8px; font-size: 12px; }
+    .bpm-group input[type=range] { width: 60px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="toolbar">
+    <div class="divider"></div>
+    <div class="tool-group bpm-group">
+      <button class="bpm-step" id="bpmDown">−</button>
+      <label>BPM</label>
+      <input type="range" id="bpmSlider" min="40" max="200" value="80" step="1">
+      <span class="bpm-val" id="bpmVal">80</span>
+      <button class="bpm-step" id="bpmUp">+</button>
+    </div>
+    <div class="divider"></div>
+    <div class="tool-group">
+      <button class="ctrl-btn metro" id="metroBtn">🔔 Click</button>
+    </div>
+    <div class="divider"></div>
+    <div class="tool-group">
+      <button class="ctrl-btn play" id="playBtn">▶ Play</button>
+      <button class="ctrl-btn loop" id="loopBtn">⟲ Loop</button>
+      <button class="ctrl-btn stop" id="stopBtn">■ Stop</button>
+      <button class="ctrl-btn" id="clearLoopBtn" title="Clear loop selection">✕ Clear loop</button>
+    </div>
+  </div>
+
+  <div class="bar-counter" id="barCounter"></div>
+  <canvas id="score" height="160"></canvas>
+  <div class="status" id="status">Click a bar to set the starting point — click two bars to select a loop range</div>
+</div>
+
+<script>
+const canvas = document.getElementById('score');
+const ctx = canvas.getContext('2d');
+function makeBar(pattern) { return pattern; }
+const W_ = { type: 'note', value: 'whole' };
+const H_ = { type: 'note', value: 'half' };
+const Q_ = { type: 'note', value: 'quarter' };
+const HH = [H_, H_];
+
+let notes = [
+  // Row 1
+  W_, W_, ...HH,
+  // Row 2
+  ...HH, W_, ...HH,
+  // Row 3
+  W_, W_, ...HH,
+  // Row 4
+  W_, W_, ...HH,
+  // Row 5
+  ...HH, W_, W_,
+  // Row 6
+  W_, ...HH, W_,
+  // Row 7
+  ...HH, W_, ...HH,
+  // Extra row (added)
+  ...HH, W_, W_
+];
+let selectedType = 'note', selectedValue = 'whole';
+let isPlaying = false, playInterval = null, highlightIdx = -1;
+let audioCtx = null, timeSig = '4/4';
+let barRects = [];
+let startNoteIdx = 0;
+let selectedBarIdx = 0;
+let loopStartBar = null, loopEndBar = null;
+let isLooping = false;
+let pendingLoopClick = false;
+let metroOn = false;
+let metroTimers = [];
+
+const NOTE_VALUES = { whole: 4, half: 2, quarter: 1, eighth: 0.5, sixteenth: 0.25 };
+
+function getBeats() { return parseInt(timeSig.split('/')[0]); }
+
+function getNoteDuration(val) {
+  const bpm = parseInt(document.getElementById('bpmSlider').value);
+  const beatDur = 60 / bpm;
+  if (timeSig === '6/8') {
+    const eighthDur = beatDur / 3;
+    return { whole: 8, half: 4, quarter: 2, eighth: 1, sixteenth: 0.5 }[val] * eighthDur;
+  }
+  return NOTE_VALUES[val] * beatDur;
+}
+
+function getBeatDuration() {
+  const bpm = parseInt(document.getElementById('bpmSlider').value);
+  if (timeSig === '6/8') return (60 / bpm) / 3 * 3;
+  return 60 / bpm;
+}
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playNote(freq, duration) {
+  initAudio();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(freq, now);
+  gain.gain.setValueAtTime(0.4, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + Math.max(duration * 0.9, 0.05));
+  osc.start(now); osc.stop(now + duration);
+}
+
+function playClick(accent) {
+  initAudio();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(accent ? 1500 : 1000, now);
+  gain.gain.setValueAtTime(accent ? 0.25 : 0.15, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+  osc.start(now); osc.stop(now + 0.05);
+}
+
+function clearMetroTimers() {
+  metroTimers.forEach(t => clearTimeout(t));
+  metroTimers = [];
+}
+
+function scheduleMetroForNote(noteDur, beatsInNote) {
+  if (!metroOn) return;
+  const beatDur = getBeatDuration();
+  for (let b = 0; b < beatsInNote; b++) {
+    const t = setTimeout(() => playClick(false), b * beatDur * 1000);
+    metroTimers.push(t);
+  }
+}
+
+const BARS_PER_ROW = 4;
+
+function getBarList() {
+  const beatsPerBar = timeSig === '6/8' ? 6 : getBeats();
+  let bars = [[]], currentBeats = 0;
+  for (let i = 0; i < notes.length; i++) {
+    const n = notes[i];
+    const bv = timeSig === '6/8'
+      ? { whole: 8, half: 4, quarter: 2, eighth: 1, sixteenth: 0.5 }[n.value]
+      : NOTE_VALUES[n.value];
+    if (currentBeats + bv > beatsPerBar && bars[bars.length - 1].length > 0) {
+      bars.push([]); currentBeats = 0;
+    }
+    bars[bars.length - 1].push(i);
+    currentBeats += bv;
+    if (currentBeats >= beatsPerBar) { bars.push([]); currentBeats = 0; }
+  }
+  if (bars[bars.length - 1].length === 0) bars.pop();
+  return bars;
+}
+
+function drawNoteAt(x, noteY, n, color) {
+  ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+
+  if (n.type === 'rest') {
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    if (n.value === 'whole') {
+      ctx.fillRect(x - 7, noteY - 14, 14, 6);
+    } else if (n.value === 'half') {
+      ctx.fillRect(x - 7, noteY - 8, 14, 6);
+    } else if (n.value === 'quarter') {
+      ctx.beginPath();
+      ctx.moveTo(x - 4, noteY - 14);
+      ctx.lineTo(x + 4, noteY - 4);
+      ctx.lineTo(x - 3, noteY + 2);
+      ctx.lineTo(x + 4, noteY + 8);
+      ctx.lineTo(x - 4, noteY + 16);
+      ctx.stroke();
+    } else {
+      const flags = n.value === 'sixteenth' ? 2 : 1;
+      ctx.beginPath();
+      ctx.arc(x - 3, noteY + 12, 3, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x - 2, noteY + 10);
+      ctx.lineTo(x + 6, noteY - 14);
+      ctx.stroke();
+      for (let f = 0; f < flags; f++) {
+        ctx.beginPath();
+        ctx.moveTo(x + 6, noteY - 14 + f * 6);
+        ctx.quadraticCurveTo(x + 12, noteY - 10 + f * 6, x + 5, noteY - 4 + f * 6);
+        ctx.stroke();
+      }
+    }
+    ctx.lineCap = 'butt';
+    return;
+  }
+
+  if (n.value === 'whole') {
+    ctx.beginPath(); ctx.ellipse(x, noteY, 7, 5, -0.2, 0, 2 * Math.PI); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.ellipse(x, noteY, 7, 5, -0.3, 0, 2 * Math.PI);
+    if (n.value === 'half') { ctx.stroke(); } else { ctx.fillStyle = color; ctx.fill(); }
+    ctx.beginPath(); ctx.moveTo(x + 6, noteY); ctx.lineTo(x + 6, noteY - 30); ctx.stroke();
+    if (n.value === 'eighth') {
+      ctx.beginPath(); ctx.moveTo(x + 6, noteY - 30); ctx.quadraticCurveTo(x + 18, noteY - 22, x + 14, noteY - 14); ctx.stroke();
+    }
+    if (n.value === 'sixteenth') {
+      ctx.beginPath(); ctx.moveTo(x + 6, noteY - 30); ctx.quadraticCurveTo(x + 18, noteY - 22, x + 14, noteY - 14); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + 6, noteY - 22); ctx.quadraticCurveTo(x + 18, noteY - 14, x + 14, noteY - 6); ctx.stroke();
+    }
+  }
+}
+
+function draw() {
+  const displayWidth = canvas.clientWidth || 640;
+  const bars = getBarList();
+  const numRows = Math.max(1, Math.ceil(bars.length / BARS_PER_ROW));
+  const rowHeight = 110;
+  const topMargin = 30;
+  canvas.width = displayWidth;
+  canvas.height = topMargin + numRows * rowHeight + 20;
+
+  const W = canvas.width, H = canvas.height;
+  const lineSpacing = 12;
+  const leftPad = 75, rightPad = 20;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  const positions = [];
+  barRects = [];
+
+  const availW = W - leftPad - rightPad;
+  const barW = availW / BARS_PER_ROW;
+
+  for (let row = 0; row < numRows; row++) {
+    const staffTop = topMargin + row * rowHeight;
+    const rowBars = bars.slice(row * BARS_PER_ROW, row * BARS_PER_ROW + BARS_PER_ROW);
+    if (rowBars.length === 0) continue;
+
+    for (let bi = 0; bi < rowBars.length; bi++) {
+      const globalBarIdx = row * BARS_PER_ROW + bi;
+      const barStart = leftPad + bi * barW;
+      const firstNoteIdx = rowBars[bi][0];
+      const lastNoteIdx = rowBars[bi][rowBars[bi].length - 1];
+      barRects.push({
+        barIdx: globalBarIdx,
+        firstNoteIdx,
+        lastNoteIdx,
+        x: barStart,
+        y: staffTop - 6,
+        w: barW,
+        h: 4 * lineSpacing + 12
+      });
+      const inLoopRange = loopStartBar !== null && loopEndBar !== null &&
+        globalBarIdx >= loopStartBar && globalBarIdx <= loopEndBar;
+
+      if (inLoopRange) {
+        ctx.fillStyle = '#FAEEDA';
+        ctx.fillRect(barStart, staffTop - 6, barW, 4 * lineSpacing + 12);
+      } else if (globalBarIdx === selectedBarIdx) {
+        ctx.fillStyle = '#E6F1FB';
+        ctx.fillRect(barStart, staffTop - 6, barW, 4 * lineSpacing + 12);
+      }
+    }
+
+    ctx.strokeStyle = '#333333';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const y = staffTop + i * lineSpacing;
+      ctx.beginPath(); ctx.moveTo(leftPad, y); ctx.lineTo(W - rightPad, y); ctx.stroke();
+    }
+
+    ctx.beginPath(); ctx.moveTo(leftPad, staffTop); ctx.lineTo(leftPad, staffTop + 4 * lineSpacing); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(W - rightPad, staffTop); ctx.lineTo(W - rightPad, staffTop + 4 * lineSpacing); ctx.stroke();
+    ctx.lineWidth = 1;
+
+    if (row === 0) {
+      ctx.fillStyle = '#111111';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(timeSig, leftPad - 50, staffTop + 2 * lineSpacing);
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    const noteY = staffTop + 3 * lineSpacing;
+
+    for (let bi = 0; bi < rowBars.length; bi++) {
+      const barStart = leftPad + bi * barW;
+      const bar = rowBars[bi];
+      const ns = barW / (getBeats() + 1);
+      for (let ni = 0; ni < bar.length; ni++) positions[bar[ni]] = { x: barStart + (ni + 1) * ns, y: noteY };
+      const isLastBarOverall = (row * BARS_PER_ROW + bi) === bars.length - 1;
+      if (bi < BARS_PER_ROW - 1 || !isLastBarOverall) {
+        const bx = barStart + barW;
+        if (bx < W - rightPad - 1) {
+          ctx.strokeStyle = '#333333'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(bx, staffTop); ctx.lineTo(bx, staffTop + 4 * lineSpacing); ctx.stroke();
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < notes.length; i++) {
+    const pos = positions[i]; if (!pos) continue;
+    const n = notes[i];
+    const color = i === highlightIdx ? '#1D9E75' : '#111111';
+    drawNoteAt(pos.x, pos.y, n, color);
+  }
+
+  if (notes.length === 0) {
+    ctx.fillStyle = '#999999';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('No notes loaded', 90, topMargin + 25);
+  }
+}
+
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+canvas.addEventListener('click', (e) => {
+  if (isPlaying) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top) * scaleY;
+
+  for (const br of barRects) {
+    if (cx >= br.x && cx <= br.x + br.w && cy >= br.y && cy <= br.y + br.h) {
+      selectedBarIdx = br.barIdx;
+      startNoteIdx = br.firstNoteIdx;
+
+      if (loopStartBar === null || (loopStartBar !== null && loopEndBar !== null)) {
+        loopStartBar = br.barIdx;
+        loopEndBar = null;
+        setStatus('Loop start: bar ' + (br.barIdx + 1) + ' — click another bar to set loop end');
+      } else {
+        loopEndBar = br.barIdx;
+        if (loopEndBar < loopStartBar) { const t = loopStartBar; loopStartBar = loopEndBar; loopEndBar = t; }
+        setStatus('Loop range: bar ' + (loopStartBar + 1) + ' to bar ' + (loopEndBar + 1));
+      }
+      draw();
+      return;
+    }
+  }
+});
+
+const bpmSlider = document.getElementById('bpmSlider');
+const bpmVal = document.getElementById('bpmVal');
+
+function updateBpmDisplay() { bpmVal.textContent = bpmSlider.value; }
+
+bpmSlider.addEventListener('input', updateBpmDisplay);
+
+document.getElementById('bpmUp').addEventListener('click', () => {
+  bpmSlider.value = Math.min(200, parseInt(bpmSlider.value) + 5);
+  updateBpmDisplay();
+});
+document.getElementById('bpmDown').addEventListener('click', () => {
+  bpmSlider.value = Math.max(40, parseInt(bpmSlider.value) - 5);
+  updateBpmDisplay();
+});
+
+document.getElementById('metroBtn').addEventListener('click', function() {
+  metroOn = !metroOn;
+  this.classList.toggle('active', metroOn);
+  setStatus(metroOn ? 'Metronome click on' : 'Metronome click off');
+});
+
+function stopPlay() {
+  isPlaying = false;
+  isLooping = false;
+  if (playInterval) { clearTimeout(playInterval); playInterval = null; }
+  clearMetroTimers();
+  highlightIdx = -1;
+  document.getElementById('loopBtn').classList.remove('active');
+  document.getElementById('barCounter').textContent = '';
+  draw();
+  setStatus('Stopped');
+}
+
+function getBarNumberForNoteIdx(idx) {
+  const br = barRects.find(b => idx >= b.firstNoteIdx && idx <= b.lastNoteIdx);
+  return br ? br.barIdx + 1 : 1;
+}
+
+function playSequence(idx) {
+  if (!isPlaying) { highlightIdx = -1; clearMetroTimers(); draw(); return; }
+
+  if (isLooping) {
+    const loopEndNoteIdx = barRects.find(b => b.barIdx === loopEndBar).lastNoteIdx;
+    const loopStartNoteIdx = barRects.find(b => b.barIdx === loopStartBar).firstNoteIdx;
+    if (idx > loopEndNoteIdx) {
+      setStatus('Looping bars ' + (loopStartBar + 1) + '–' + (loopEndBar + 1));
+      playInterval = setTimeout(() => playSequence(loopStartNoteIdx), 300);
+      return;
+    }
+  } else if (idx >= notes.length) {
+    setStatus('Looping back to bar 1');
+    document.getElementById('barCounter').textContent = '';
+    playInterval = setTimeout(() => playSequence(0), 400);
+    return;
+  }
+
+  highlightIdx = idx; draw();
+  const n = notes[idx];
+  const dur = getNoteDuration(n.value);
+  const beatsInNote = timeSig === '6/8'
+    ? ({ whole: 8, half: 4, quarter: 2, eighth: 1, sixteenth: 0.5 }[n.value]) / 3
+    : NOTE_VALUES[n.value];
+
+  if (n.type === 'note') playNote(261.63, dur);
+  scheduleMetroForNote(dur, Math.max(1, Math.round(beatsInNote)));
+
+  const barNum = getBarNumberForNoteIdx(idx);
+  const totalBars = barRects.length ? barRects[barRects.length - 1].barIdx + 1 : 0;
+  document.getElementById('barCounter').textContent = 'Bar ' + barNum + ' of ' + totalBars;
+
+  if (!isLooping) setStatus('Playing — note ' + (idx + 1) + ' / ' + notes.length);
+  playInterval = setTimeout(() => playSequence(idx + 1), dur * 1000);
+}
+
+document.getElementById('playBtn').addEventListener('click', () => {
+  if (notes.length === 0) { setStatus('No notes to play'); return; }
+  if (isPlaying) stopPlay();
+  isLooping = false;
+  document.getElementById('loopBtn').classList.remove('active');
+  initAudio(); isPlaying = true; playSequence(startNoteIdx);
+});
+
+document.getElementById('loopBtn').addEventListener('click', () => {
+  if (loopStartBar === null || loopEndBar === null) {
+    setStatus('Click two bars on the staff first to set a loop range');
+    return;
+  }
+  if (notes.length === 0) { setStatus('No notes to play'); return; }
+  if (isPlaying) stopPlay();
+  isLooping = true;
+  document.getElementById('loopBtn').classList.add('active');
+  initAudio(); isPlaying = true;
+  const loopStartNoteIdx = barRects.find(b => b.barIdx === loopStartBar).firstNoteIdx;
+  playSequence(loopStartNoteIdx);
+});
+
+document.getElementById('clearLoopBtn').addEventListener('click', () => {
+  loopStartBar = null;
+  loopEndBar = null;
+  if (isLooping) stopPlay();
+  draw();
+  setStatus('Loop selection cleared');
+});
+
+document.getElementById('stopBtn').addEventListener('click', stopPlay);
+window.addEventListener('resize', draw);
+window.addEventListener('load', draw);
+setTimeout(draw, 50);
+</script>
+
+</body>
+</html>
